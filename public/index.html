@@ -185,72 +185,6 @@
     .splash-ver  { margin-top: 28px; font-size: 10px; color: #1f2e1f; letter-spacing: 2px; }
 
     /* ── Context menu ────────────────────────────────────────────── */
-    #ctx {
-      position: fixed; background: var(--bar-bg);
-      border: 1px solid var(--border);
-      padding: 4px 0; font-size: 12px; z-index: 500;
-      display: none; min-width: 170px;
-    }
-    #ctx.open { display: block; }
-    .ci { padding: 6px 16px; color: #99cc99; cursor: pointer; }
-    .ci:hover { background: #101a10; color: var(--accent); }
-    .csep { height: 1px; background: var(--border); margin: 4px 0; }
-    /* ── Floating terminal window ───────────────────────────────── */
-    #float-win {
-      position: fixed;
-      top: 60px; left: 60px;
-      width: 660px; height: 400px;
-      min-width: 320px; min-height: 160px;
-      background: #07070e;
-      border: 1px solid var(--accent-dim);
-      box-shadow: 0 0 0 1px #001a09, 0 8px 40px rgba(0,255,136,.12);
-      border-radius: 4px;
-      display: flex; flex-direction: column;
-      z-index: 300;
-      resize: both; overflow: hidden;
-    }
-    #float-win.hidden { display: none; }
-
-    #float-titlebar {
-      height: 26px;
-      background: #0d0d1a;
-      border-bottom: 1px solid var(--border);
-      display: flex; align-items: center;
-      padding: 0 8px; gap: 7px;
-      cursor: move;
-      flex-shrink: 0;
-      user-select: none;
-    }
-    .win-dot {
-      width: 10px; height: 10px; border-radius: 50%;
-      cursor: pointer; flex-shrink: 0;
-    }
-    #win-close  { background: #ff5f57; border: 1px solid #c0392b; }
-    #win-close:hover  { background: #ff2d20; }
-    #win-min    { background: #febc2e; border: 1px solid #c47d0e; }
-    #win-min:hover    { background: #f5a800; }
-    #win-zoom   { background: #28c840; border: 1px solid #1a9e30; }
-    #win-zoom:hover   { background: #00e64d; }
-    #win-title {
-      flex: 1; text-align: center;
-      font-size: 10px; color: var(--muted); letter-spacing: 1px;
-    }
-
-    #float-term-inner {
-      flex: 1; overflow: hidden;
-      padding: 2px 4px;
-    }
-    #float-term-inner .xterm         { height: 100%; }
-    #float-term-inner .xterm-viewport { overflow-y: hidden !important; }
-
-    /* resize handle shine */
-    #float-win::after {
-      content: "";
-      position: absolute; bottom: 3px; right: 4px;
-      width: 10px; height: 10px;
-      border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
-      opacity: .35; pointer-events: none;
-    }
   </style>
 </head>
 <body>
@@ -263,7 +197,7 @@
  ██║███╗██║██╔══╝  ██╔══██╗██║   ██║╚════██║
  ╚███╔███╔╝███████╗██████╔╝╚██████╔╝███████║
   ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚══════╝</pre>
-  <div class="splash-sub">ALPINE LINUX · x86 · v86 WASM ENGINE</div>
+  <div class="splash-sub">ALPINE LINUX 3.23 · x86 · v86 WASM ENGINE</div>
   <div class="splash-msg" id="smsg">Initializing…</div>
   <div class="splash-rail"><div class="splash-fill" id="sfill"></div></div>
   <div class="splash-ver">v86@0.5.357 · 2 GB vRAM · FASTBOOT · ACPI</div>
@@ -280,8 +214,6 @@
     <button class="tb-btn" id="btn-term">⌨ Serial</button>
   </div>
 
-  <div class="sep"></div>
-  <button class="tb-btn" id="btn-float-term" title="Toggle floating terminal (Ctrl+Alt+T)">⊞ Terminal</button>
   <div class="sep"></div>
   <button class="tb-btn" id="btn-reset" title="Hard reset VM">⟳ Reset</button>
   <button class="tb-btn" id="btn-pause" title="Pause / resume">⏸ Pause</button>
@@ -309,20 +241,9 @@
   <div id="terminal"></div>
 </div>
 
-<!-- ── Floating terminal window ───────────────────────────────────────── -->
-<div id="float-win" class="hidden">
-  <div id="float-titlebar">
-    <span class="win-dot" id="win-close"  title="Close"></span>
-    <span class="win-dot" id="win-min"    title="Minimise"></span>
-    <span class="win-dot" id="win-zoom"   title="Maximise"></span>
-    <span id="win-title">terminal — ttyS0 · Alpine Linux</span>
-  </div>
-  <div id="float-term-inner"></div>
-</div>
-
 <!-- ── Status bar ─────────────────────────────────────────────────────── -->
 <div id="statusbar">
-  <div class="stat"><span class="sl">OS</span>    <span class="sv">Alpine Linux x86</span></div>
+  <div class="stat"><span class="sl">OS</span>    <span class="sv">Alpine Linux 3.23 x86</span></div>
   <div class="stat"><span class="sl">RAM</span>   <span class="sv">~2 GB</span></div>
   <div class="stat"><span class="sl">UPTIME</span><span class="sv" id="s-uptime">—</span></div>
   <div class="right">
@@ -537,10 +458,10 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
     // ── Kernel command line ───────────────────────────────────────────────
     // Overrides the ISOLINUX default.  Must include the squashfs/loop modules
     // Alpine's initramfs needs to mount the live ISO root.
-    // vga=791 = VESA mode 0x317 → 1024×768 16bpp framebuffer (fbcon).
-    // Bump to vga=0x318 (1024×768 24bpp) or vga=794 (1280×1024 16bpp) if
-    // your v86 VGA BIOS supports it — 791 is the safest widely-supported mode.
-    cmdline: "modules=loop,squashfs,sd-mod,usb-storage quiet console=tty0 vga=791",
+    // vga=791  = VESA mode 0x317 → 1024×768 16bpp framebuffer (fbcon).
+    // console= is given twice: VGA (tty0) is primary; ttyS0 gets a getty too
+    // so the serial terminal panel can also accept input.
+    cmdline: "modules=loop,squashfs,sd-mod,usb-storage quiet console=ttyS0 console=tty0 vga=791",
 
     // ── Performance flags ─────────────────────────────────────────────────
     fastboot:        true,    // skip SeaBIOS POST memory check (~2× faster boot)
@@ -568,49 +489,27 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
     for (const ch of data) emulator.serial0_send(ch);
   });
 
-  // ── Floating terminal window ───────────────────────────────────────────────
-  // A second xterm instance that mirrors serial0 output and can send input.
-  // Lives in the draggable/resizable overlay window on top of the VGA panel.
-  const floatTerm = new Terminal({
-    theme: {
-      background:          "#07070e",
-      foreground:          "#c8ffc8",
-      cursor:              "#00ff88",
-      cursorAccent:        "#000000",
-      selectionBackground: "rgba(0,255,136,.18)",
-      black:   "#000000", brightBlack:   "#444444",
-      red:     "#cc4444", brightRed:     "#ff6666",
-      green:   "#00ff88", brightGreen:   "#88ffcc",
-      yellow:  "#ddcc00", brightYellow:  "#ffee44",
-      blue:    "#4488ff", brightBlue:    "#88aaff",
-      magenta: "#cc66ff", brightMagenta: "#ee88ff",
-      cyan:    "#00ddcc", brightCyan:    "#44ffee",
-      white:   "#aaccaa", brightWhite:   "#ccffcc",
-    },
-    fontFamily: '"Cascadia Code", "Fira Code", "Courier New", monospace',
-    fontSize:    13,
-    lineHeight:  1.2,
-    cursorBlink: true,
-    cursorStyle: "block",
-    scrollback:  30000,
-    allowTransparency: true,
-    convertEol:  true,
+  // ── Auto-configure apk mirrors via serial ────────────────────────────────
+  // Alpine live boots with /etc/apk/repositories pointing only at the ISO
+  // cdrom.  We watch the serial output for the root shell prompt, then send
+  // the two network mirror lines and run apk update — event-driven so it
+  // fires as soon as the shell is ready regardless of how long boot took.
+  let _apkDone = false;
+  let _serialBuf = "";
+  emulator.add_listener("serial0-output-char", ch => {
+    if (_apkDone) return;
+    _serialBuf = (_serialBuf + ch).slice(-64);
+    // Alpine root prompt ends with "~# " — we've got a shell
+    if (_serialBuf.endsWith("~# ") || _serialBuf.endsWith("/ # ")) {
+      _apkDone = true;
+      const send = s => { for (const c of s) emulator.serial0_send(c); };
+      send(
+        "echo https://dl-cdn.alpinelinux.org/alpine/v3.23/main"      + " > /etc/apk/repositories && " +
+        "echo https://dl-cdn.alpinelinux.org/alpine/v3.23/community" + " >> /etc/apk/repositories && " +
+        "apk update -q\n"
+      );
+    }
   });
-  const floatFit = new FitAddon.FitAddon();
-  floatTerm.loadAddon(floatFit);
-  floatTerm.open($("float-term-inner"));
-  floatFit.fit();
-
-  // Mirror serial0 output to the floating terminal as well
-  emulator.add_listener("serial0-output-char", ch => floatTerm.write(ch));
-  floatTerm.onData(data => {
-    for (const ch of data) emulator.serial0_send(ch);
-  });
-
-  // Refit when the window is resized (native resize handle)
-  new ResizeObserver(() => floatFit.fit()).observe($("float-win"));
-
-  window._floatTerm = floatTerm;   // expose for debug
 
   // ── Emulator lifecycle events ─────────────────────────────────────────────
   emulator.add_listener("emulator-ready", () => setVMState("booting"));
@@ -659,97 +558,6 @@ function switchView(to) {
 
 $("btn-vga").addEventListener("click",  () => switchView("vga"));
 $("btn-term").addEventListener("click", () => switchView("term"));
-
-// ── Floating terminal window controls ─────────────────────────────────────
-const floatWin = $("float-win");
-let _floatMinimised = false;
-let _prevSize = null;
-
-function openFloatTerm() {
-  floatWin.classList.remove("hidden");
-  $("btn-float-term").classList.add("active");
-  _floatMinimised = false;
-  floatWin.style.height = (_prevSize?.h ?? "400px");
-  floatWin.style.width  = (_prevSize?.w ?? "660px");
-  // give the DOM a frame then fit
-  requestAnimationFrame(() => window._floatTerm && window._floatTerm._addonManager
-    // fitAddon exposes fit() directly on _floatTerm via the instance we kept:
-    || setTimeout(() => {
-      const inner = $("float-term-inner");
-      if (inner && window._floatTerm) {
-        // trigger ResizeObserver
-        inner.dispatchEvent(new Event("resize"));
-      }
-    }, 50));
-}
-
-function closeFloatTerm() {
-  floatWin.classList.add("hidden");
-  $("btn-float-term").classList.remove("active");
-}
-
-function toggleFloatTerm() {
-  floatWin.classList.contains("hidden") ? openFloatTerm() : closeFloatTerm();
-}
-
-$("btn-float-term").addEventListener("click", toggleFloatTerm);
-$("win-close").addEventListener("click", closeFloatTerm);
-
-$("win-min").addEventListener("click", () => {
-  if (_floatMinimised) {
-    floatWin.style.height = _prevSize?.h ?? "400px";
-    _floatMinimised = false;
-  } else {
-    _prevSize = { w: floatWin.style.width || "660px", h: floatWin.style.height || "400px" };
-    floatWin.style.height = "26px";   // just the title bar
-    _floatMinimised = true;
-  }
-});
-
-$("win-zoom").addEventListener("click", () => {
-  const tb = 32, sb = 26;
-  if (floatWin.style.top === tb + "px" && floatWin.style.left === "0px" &&
-      floatWin.style.width  === "100vw") {
-    // restore
-    Object.assign(floatWin.style, {
-      top: "60px", left: "60px",
-      width: "660px", height: "400px",
-    });
-  } else {
-    // maximise to content area
-    Object.assign(floatWin.style, {
-      top: tb + "px", left: "0px",
-      width: "100vw", height: `calc(100vh - ${tb + sb}px)`,
-    });
-  }
-});
-
-// Drag via title bar
-(function() {
-  const bar = $("float-titlebar");
-  let ox = 0, oy = 0, dragging = false;
-  bar.addEventListener("mousedown", e => {
-    if (e.target.classList.contains("win-dot")) return;
-    dragging = true;
-    ox = e.clientX - floatWin.offsetLeft;
-    oy = e.clientY - floatWin.offsetTop;
-    e.preventDefault();
-  });
-  document.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    floatWin.style.left = Math.max(0, e.clientX - ox) + "px";
-    floatWin.style.top  = Math.max(32, e.clientY - oy) + "px";
-  });
-  document.addEventListener("mouseup", () => { dragging = false; });
-})();
-
-// Ctrl+Alt+T — open / focus floating terminal
-document.addEventListener("keydown", e => {
-  if (e.ctrlKey && e.altKey && e.key === "t") {
-    e.preventDefault();
-    toggleFloatTerm();
-  }
-});
 
 // ── Top bar controls ───────────────────────────────────────────────────────
 let _paused = false;
