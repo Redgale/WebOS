@@ -263,7 +263,7 @@
  ██║███╗██║██╔══╝  ██╔══██╗██║   ██║╚════██║
  ╚███╔███╔╝███████╗██████╔╝╚██████╔╝███████║
   ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚══════╝</pre>
-  <div class="splash-sub">ALPINE LINUX 3.23 · x86 · v86 WASM ENGINE</div>
+  <div class="splash-sub">ALPINE LINUX · x86 · v86 WASM ENGINE</div>
   <div class="splash-msg" id="smsg">Initializing…</div>
   <div class="splash-rail"><div class="splash-fill" id="sfill"></div></div>
   <div class="splash-ver">v86@0.5.357 · 2 GB vRAM · FASTBOOT · ACPI</div>
@@ -322,12 +322,11 @@
 
 <!-- ── Status bar ─────────────────────────────────────────────────────── -->
 <div id="statusbar">
-  <div class="stat"><span class="sl">OS</span>    <span class="sv">Alpine Linux 3.23 x86</span></div>
+  <div class="stat"><span class="sl">OS</span>    <span class="sv">Alpine Linux x86</span></div>
   <div class="stat"><span class="sl">RAM</span>   <span class="sv">~2 GB</span></div>
   <div class="stat"><span class="sl">UPTIME</span><span class="sv" id="s-uptime">—</span></div>
   <div class="right">
     <div class="stat"><span class="sl">NET</span>   <span class="sv" id="s-net" style="color:var(--warn)">relay</span></div>
-    <div class="stat"><span class="sl">APK</span>   <span class="sv" id="s-apk" style="color:var(--warn)">mirrors pending</span></div>
     <div class="stat"><span class="sl">ENGINE</span><span class="sv">v86 / WASM</span></div>
     <div class="stat"><span class="sl">CORS</span>  <span class="sv" style="color:var(--accent)">★ wildcard</span></div>
   </div>
@@ -538,10 +537,10 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
     // ── Kernel command line ───────────────────────────────────────────────
     // Overrides the ISOLINUX default.  Must include the squashfs/loop modules
     // Alpine's initramfs needs to mount the live ISO root.
-    // vga=791  = VESA mode 0x317 → 1024×768 16bpp framebuffer (fbcon).
-    // console= is given twice: VGA (tty0) is primary; ttyS0 gets a getty too
-    // so the serial terminal panel can also accept input.
-    cmdline: "modules=loop,squashfs,sd-mod,usb-storage quiet console=ttyS0 console=tty0 vga=791",
+    // vga=791 = VESA mode 0x317 → 1024×768 16bpp framebuffer (fbcon).
+    // Bump to vga=0x318 (1024×768 24bpp) or vga=794 (1280×1024 16bpp) if
+    // your v86 VGA BIOS supports it — 791 is the safest widely-supported mode.
+    cmdline: "modules=loop,squashfs,sd-mod,usb-storage quiet console=tty0 vga=791",
 
     // ── Performance flags ─────────────────────────────────────────────────
     fastboot:        true,    // skip SeaBIOS POST memory check (~2× faster boot)
@@ -603,16 +602,7 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
   floatFit.fit();
 
   // Mirror serial0 output to the floating terminal as well
-  let _serialBuf = "";
-  emulator.add_listener("serial0-output-char", ch => {
-    floatTerm.write(ch);
-    // Watch for the apk-mirrors-ready signal we send after setup
-    _serialBuf = (_serialBuf + ch).slice(-30);
-    if (_serialBuf.includes("[apk] mirrors ready")) {
-      const el = $("s-apk");
-      if (el) { el.textContent = "ready"; el.style.color = "var(--accent)"; }
-    }
-  });
+  emulator.add_listener("serial0-output-char", ch => floatTerm.write(ch));
   floatTerm.onData(data => {
     for (const ch of data) emulator.serial0_send(ch);
   });
@@ -629,28 +619,6 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
     setVMState("running");
     startUptime();
     hideSplash();
-
-    // ── Auto-configure apk network mirrors ─────────────────────────────────
-    // Alpine live ISO ships with /etc/apk/repositories pointing only at
-    // file:///media/cdrom/apks, so `apk add` fails for anything not on the ISO.
-    // We wait 40 s for OpenRC + getty to finish, then send the repo setup
-    // commands over the serial console (ttyS0 has a login shell because we
-    // pass console=ttyS0 in the cmdline).  The commands log in as root (no
-    // password), write the v3.23 mirrors, run apk update, then exit so the
-    // serial tty is clean again.  After this, `apk add` works on both VGA and
-    // the serial terminal for the rest of the session.
-    setTimeout(() => {
-      const send = str => { for (const ch of str) emulator.serial0_send(ch); };
-      send("root\n");                                      // log in
-      setTimeout(() => {
-        send(
-          "printf 'https://dl-cdn.alpinelinux.org/alpine/v3.23/main\\n" +
-          "https://dl-cdn.alpinelinux.org/alpine/v3.23/community\\n'" +
-          " > /etc/apk/repositories && apk update --quiet && " +
-          "echo '\\n[apk] mirrors ready' && exit\n"
-        );
-      }, 3000);   // give the login prompt a moment to appear
-    }, 40000);
   });
 
   emulator.add_listener("emulator-stopped", () => {
