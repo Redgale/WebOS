@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebOS — Alpine Linux</title>
+
+  <!-- xterm.js — served locally; CDN assets fail COEP checks -->
+  <link rel="stylesheet" href="/lib/xterm.css" />
+  <script src="/lib/xterm.js"></script>
+  <script src="/lib/xterm-addon-fit.js"></script>
+
+  <!-- v86 0.5.357 — CJS build, exports V86 as module.exports.V86 -->
+  <script src="/v86/libv86.js"></script>
+
+  <style>
+    /* ── Reset ──────────────────────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg:           #09090f;
+      --bar-bg:       #0d0d1a;
+      --border:       #1c1c30;
+      --accent:       #00ff88;
+      --accent-dim:   #00a855;
+      --text:         #c8ffc8;
+      --muted:        #445544;
+      --danger:       #ff4d4d;
+      --warn:         #ffd700;
+      --topbar-h:     32px;
+      --statusbar-h:  26px;
+      --mono:         "Cascadia Code", "Fira Code", "Courier New", monospace;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ── Top bar ────────────────────────────────────────────────── */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: var(--topbar-h);
+      background: var(--bar-bg);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 14px; gap: 10px;
+      z-index: 100;
+    }
+    .brand {
+      font-size: 11px; font-weight: bold;
+      letter-spacing: 3px; color: var(--accent);
+      text-shadow: 0 0 10px var(--accent-dim);
+      margin-right: 4px;
+    }
+    .sep { width: 1px; height: 14px; background: var(--border); }
+
+    .tb-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 9px;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: color .15s, border-color .15s, background .15s;
+      white-space: nowrap;
+    }
+    .tb-btn:hover  { color: var(--accent); border-color: var(--accent-dim); background: #0a1a0a; }
+    .tb-btn.active { color: var(--accent); border-color: var(--accent); background: #0a1a0a; }
+
+    /* View toggle group */
+    .view-group { display: flex; gap: 0; }
+    .view-group .tb-btn { border-radius: 0; border-right-width: 0; }
+    .view-group .tb-btn:first-child { border-radius: 2px 0 0 2px; }
+    .view-group .tb-btn:last-child  { border-radius: 0 2px 2px 0; border-right-width: 1px; }
+
+    #vm-state {
+      display: flex; align-items: center; gap: 6px;
+      margin-left: auto;
+      font-size: 11px; color: var(--muted);
+    }
+    #vm-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    #vm-dot.booting  { background: var(--warn);   animation: blink 1s infinite; }
+    #vm-dot.running  { background: var(--accent);  box-shadow: 0 0 6px var(--accent); }
+    #vm-dot.paused   { background: var(--warn); }
+    #vm-dot.stopped  { background: var(--danger); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    #clock { font-size: 11px; color: var(--muted); min-width: 64px; text-align: right; }
+
+    /* ── VGA panel (primary — Alpine renders here) ──────────────── */
+    #vga-panel {
+      position: fixed;
+      top: var(--topbar-h); bottom: var(--statusbar-h);
+      left: 0; right: 0;
+      background: #000;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+    }
+    #vga-panel.hidden { display: none; }
+
+    #screen-container {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    #screen-container canvas {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      image-rendering: auto;
+      outline: none; cursor: default;
+    }
+
+    #focus-hint {
+      position: absolute;
+      bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.75);
+      border: 1px solid var(--border);
+      color: #557755; font-size: 11px;
+      padding: 4px 14px; white-space: nowrap;
+      pointer-events: none;
+      transition: opacity .8s;
+    }
+    #focus-hint.gone { opacity: 0; }
+
+    /* ── Terminal panel (serial console / secondary) ─────────────── */
+    #term-panel {
+      position: fixed;
+      top: var(--topbar-h); bottom: var(--statusbar-h);
+      left: 0; right: 0;
+      padding: 3px 4px;
+      background: var(--bg);
+      display: none;
+      z-index: 50;
+    }
+    #term-panel.visible { display: block; }
+    #terminal { width: 100%; height: 100%; }
+    .xterm         { height: 100%; }
+    .xterm-viewport { overflow-y: hidden !important; }
+
+    /* ── Status bar ─────────────────────────────────────────────── */
+    #statusbar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: var(--statusbar-h);
+      background: var(--bar-bg); border-top: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 14px; gap: 20px;
+      font-size: 10.5px; color: var(--muted); z-index: 100;
+    }
+    .stat { display: flex; align-items: center; gap: 5px; }
+    .sl   { color: var(--accent-dim); font-size: 10px; letter-spacing: 1px; }
+    .sv   { color: #99cc99; }
+    .right { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+
+    /* ── Boot splash ─────────────────────────────────────────────── */
+    #splash {
+      position: fixed; inset: 0;
+      background: #000; z-index: 9999;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      transition: opacity .5s ease;
+    }
+    #splash.fade { opacity: 0; pointer-events: none; }
+
+    .splash-logo {
+      font-size: 12.5px; line-height: 1.25; white-space: pre;
+      color: var(--accent);
+      text-shadow: 0 0 24px var(--accent-dim), 0 0 80px #004422;
+      margin-bottom: 44px; text-align: center;
+    }
+    .splash-sub  { font-size: 11px; color: #336633; margin-bottom: 6px; letter-spacing: 2px; }
+    .splash-msg  { font-size: 11px; color: #446644; margin-bottom: 16px; min-height: 15px; letter-spacing: .5px; }
+    .splash-rail { width: 300px; height: 2px; background: #0a140a; border: 1px solid #162416; border-radius: 1px; overflow: hidden; }
+    .splash-fill { height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent-dim); width: 0; transition: width .35s ease; }
+    .splash-ver  { margin-top: 28px; font-size: 10px; color: #1f2e1f; letter-spacing: 2px; }
+
+    /* ── Context menu ────────────────────────────────────────────── */
+    #ctx {
+      position: fixed; background: var(--bar-bg);
+      border: 1px solid var(--border);
+      padding: 4px 0; font-size: 12px; z-index: 500;
+      display: none; min-width: 170px;
+    }
+    #ctx.open { display: block; }
+    .ci { padding: 6px 16px; color: #99cc99; cursor: pointer; }
+    .ci:hover { background: #101a10; color: var(--accent); }
+    .csep { height: 1px; background: var(--border); margin: 4px 0; }
+    /* ── Floating terminal window ───────────────────────────────── */
+    #float-win {
+      position: fixed;
+      top: 60px; left: 60px;
+      width: 660px; height: 400px;
+      min-width: 320px; min-height: 160px;
+      background: #07070e;
+      border: 1px solid var(--accent-dim);
+      box-shadow: 0 0 0 1px #001a09, 0 8px 40px rgba(0,255,136,.12);
+      border-radius: 4px;
+      display: flex; flex-direction: column;
+      z-index: 300;
+      resize: both; overflow: hidden;
+    }
+    #float-win.hidden { display: none; }
+
+    #float-titlebar {
+      height: 26px;
+      background: #0d0d1a;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 8px; gap: 7px;
+      cursor: move;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .win-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      cursor: pointer; flex-shrink: 0;
+    }
+    #win-close  { background: #ff5f57; border: 1px solid #c0392b; }
+    #win-close:hover  { background: #ff2d20; }
+    #win-min    { background: #febc2e; border: 1px solid #c47d0e; }
+    #win-min:hover    { background: #f5a800; }
+    #win-zoom   { background: #28c840; border: 1px solid #1a9e30; }
+    #win-zoom:hover   { background: #00e64d; }
+    #win-title {
+      flex: 1; text-align: center;
+      font-size: 10px; color: var(--muted); letter-spacing: 1px;
+    }
+
+    #float-term-inner {
+      flex: 1; overflow: hidden;
+      padding: 2px 4px;
+    }
+    #float-term-inner .xterm         { height: 100%; }
+    #float-term-inner .xterm-viewport { overflow-y: hidden !important; }
+
+    /* resize handle shine */
+    #float-win::after {
+      content: "";
+      position: absolute; bottom: 3px; right: 4px;
+      width: 10px; height: 10px;
+      border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+      opacity: .35; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Boot splash ─────────────────────────────────────────────────────── -->
+<div id="splash">
+  <pre class="splash-logo"> ██╗    ██╗███████╗██████╗  ██████╗ ███████╗
+ ██║    ██║██╔════╝██╔══██╗██╔═══██╗██╔════╝
+ ██║ █╗ ██║█████╗  ██████╔╝██║   ██║███████╗
+ ██║███╗██║██╔══╝  ██╔══██╗██║   ██║╚════██║
+ ╚███╔███╔╝███████╗██████╔╝╚██████╔╝███████║
+  ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚══════╝</pre>
+  <div class="splash-sub">ALPINE LINUX · x86 · v86 WASM ENGINE</div>
+  <div class="splash-msg" id="smsg">Initializing…</div>
+  <div class="splash-rail"><div class="splash-fill" id="sfill"></div></div>
+  <div class="splash-ver">v86@0.5.357 · 2 GB vRAM · FASTBOOT · ACPI</div>
+</div>
+
+<!-- ── Top bar ─────────────────────────────────────────────────────────── -->
+<div id="topbar">
+  <span class="brand">WEBOS</span>
+  <div class="sep"></div>
+
+  <!-- View toggle -->
+  <div class="view-group">
+    <button class="tb-btn active" id="btn-vga">⬛ VGA</button>
+    <button class="tb-btn" id="btn-term">⌨ Serial</button>
+  </div>
+
+  <div class="sep"></div>
+  <button class="tb-btn" id="btn-float-term" title="Toggle floating terminal (Ctrl+Alt+T)">⊞ Terminal</button>
+  <div class="sep"></div>
+  <button class="tb-btn" id="btn-reset" title="Hard reset VM">⟳ Reset</button>
+  <button class="tb-btn" id="btn-pause" title="Pause / resume">⏸ Pause</button>
+  <button class="tb-btn" id="btn-save"  title="Download VM snapshot">💾 Save</button>
+  <button class="tb-btn" id="btn-load"  title="Restore VM snapshot">📂 Load</button>
+  <input type="file" id="snap-input" accept=".bin" style="display:none" />
+
+  <div id="vm-state">
+    <div id="vm-dot" class="booting"></div>
+    <span id="vm-label">booting</span>
+  </div>
+  <div id="clock"></div>
+</div>
+
+<!-- ── VGA panel ──────────────────────────────────────────────────────── -->
+<div id="vga-panel">
+  <div id="screen-container">
+    <!-- v86 appends its <canvas> here at runtime -->
+    <div id="focus-hint">🖱 Click screen to capture keyboard · Esc or click outside to release</div>
+  </div>
+</div>
+
+<!-- ── Serial terminal panel ──────────────────────────────────────────── -->
+<div id="term-panel">
+  <div id="terminal"></div>
+</div>
+
+<!-- ── Floating terminal window ───────────────────────────────────────── -->
+<div id="float-win" class="hidden">
+  <div id="float-titlebar">
+    <span class="win-dot" id="win-close"  title="Close"></span>
+    <span class="win-dot" id="win-min"    title="Minimise"></span>
+    <span class="win-dot" id="win-zoom"   title="Maximise"></span>
+    <span id="win-title">terminal — ttyS0 · Alpine Linux</span>
+  </div>
+  <div id="float-term-inner"></div>
+</div>
+
+<!-- ── Status bar ─────────────────────────────────────────────────────── -->
+<div id="statusbar">
+  <div class="stat"><span class="sl">OS</span>    <span class="sv">Alpine Linux x86</span></div>
+  <div class="stat"><span class="sl">RAM</span>   <span class="sv">~2 GB</span></div>
+  <div class="stat"><span class="sl">UPTIME</span><span class="sv" id="s-uptime">—</span></div>
+  <div class="right">
+    <div class="stat"><span class="sl">NET</span>   <span class="sv" id="s-net" style="color:var(--warn)">relay</span></div>
+    <div class="stat"><span class="sl">ENGINE</span><span class="sv">v86 / WASM</span></div>
+    <div class="stat"><span class="sl">CORS</span>  <span class="sv" style="color:var(--accent)">★ wildcard</span></div>
+  </div>
+</div>
+
+<!-- ── Context menu ───────────────────────────────────────────────────── -->
+<div id="ctx">
+  <div class="ci" id="ci-reset">⟳  Hard Reset</div>
+  <div class="ci" id="ci-shot">📷  Screenshot</div>
+  <div class="csep"></div>
+  <div class="ci" id="ci-fs">⛶  Fullscreen</div>
+</div>
+
+<script>
+"use strict";
+
+// ── Tiny util ──────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+(function tick() {
+  $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false });
+  setTimeout(tick, 500);
+})();
+
+// ── Uptime ─────────────────────────────────────────────────────────────────
+let _t0 = null;
+function startUptime() {
+  _t0 = Date.now();
+  (function tick() {
+    if (!_t0) return;
+    const s = Math.floor((Date.now() - _t0) / 1000);
+    const h = String(Math.floor(s / 3600)).padStart(2, "0");
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const ss = String(s % 60).padStart(2, "0");
+    $("s-uptime").textContent = `${h}:${m}:${ss}`;
+    setTimeout(tick, 1000);
+  })();
+}
+
+// ── Boot splash ────────────────────────────────────────────────────────────
+const STEPS = [
+  [8,  "Allocating ~2 GB virtual RAM…"],
+  [18, "Compiling WebAssembly JIT engine…"],
+  [30, "Loading SeaBIOS firmware…"],
+  [42, "Streaming Alpine ISO (range requests)…"],
+  [55, "ISOLINUX reading kernel + initramfs…"],
+  [68, "Alpine kernel decompressing…"],
+  [80, "OpenRC starting init services…"],
+  [92, "Bringing up virtual NIC…"],
+];
+let _si = 0;
+const _fill = $("sfill"), _msg = $("smsg");
+const _splashTimer = setInterval(() => {
+  if (_si >= STEPS.length) return;
+  _fill.style.width = STEPS[_si][0] + "%";
+  _msg.textContent  = STEPS[_si][1];
+  _si++;
+}, 750);
+
+// Fallback: if emulator-started never fires (slow ISO fetch, relay hiccup, etc.)
+// guarantee the splash clears after 25 s so the UI isn't stuck forever.
+const _splashFallback = setTimeout(hideSplash, 25000);
+
+function hideSplash() {
+  clearInterval(_splashTimer);
+  clearTimeout(_splashFallback);   // cancel the fallback if the event beat it
+  _fill.style.width = "100%";
+  _msg.textContent  = "System ready.";
+  setTimeout(() => {
+    $("splash").classList.add("fade");
+    setTimeout(() => $("splash").remove(), 600);
+  }, 500);
+}
+
+// Called when a required asset is missing or a global failed to load.
+// Shows a clear error list on the splash instead of a silent forever-hang.
+function showBootError(lines) {
+  clearInterval(_splashTimer);
+  clearTimeout(_splashFallback);
+  _fill.style.background = "var(--danger)";
+  _fill.style.boxShadow  = "0 0 10px #ff4d4d";
+  _fill.style.width      = "100%";
+  _msg.style.color       = "var(--danger)";
+  _msg.textContent       = "Boot failed — missing or failed assets:";
+  const pre = Object.assign(document.createElement("pre"), {
+    textContent: lines.join("\n"),
+  });
+  pre.style.cssText = "font-size:10px;color:var(--danger);margin-top:10px;" +
+                      "line-height:1.8;text-align:left;white-space:pre";
+  const hint = Object.assign(document.createElement("div"), {
+    textContent: "Fix the above, then refresh the page.",
+  });
+  hint.style.cssText = "margin-top:14px;font-size:10px;color:var(--muted)";
+  $("splash").append(pre, hint);
+}
+
+// ── VM state indicator ─────────────────────────────────────────────────────
+function setVMState(s) {
+  $("vm-dot").className = s;
+  $("vm-label").textContent = s;
+}
+
+// ── xterm.js serial console ────────────────────────────────────────────────
+const term = new Terminal({
+  theme: {
+    background:          "#09090f",
+    foreground:          "#c8ffc8",
+    cursor:              "#00ff88",
+    cursorAccent:        "#000000",
+    selectionBackground: "rgba(0,255,136,.2)",
+    black:   "#000000", brightBlack:   "#444444",
+    red:     "#cc4444", brightRed:     "#ff6666",
+    green:   "#00ff88", brightGreen:   "#88ffcc",
+    yellow:  "#ddcc00", brightYellow:  "#ffee44",
+    blue:    "#4488ff", brightBlue:    "#88aaff",
+    magenta: "#cc66ff", brightMagenta: "#ee88ff",
+    cyan:    "#00ddcc", brightCyan:    "#44ffee",
+    white:   "#aaccaa", brightWhite:   "#ccffcc",
+  },
+  fontFamily: '"Cascadia Code", "Fira Code", "Courier New", monospace',
+  fontSize:    14,
+  lineHeight:  1.2,
+  cursorBlink: true,
+  cursorStyle: "block",
+  scrollback:  30000,
+  allowTransparency: true,
+  convertEol:  true,
+});
+const fitAddon = new FitAddon.FitAddon();
+term.loadAddon(fitAddon);
+term.open($("terminal"));
+fitAddon.fit();
+new ResizeObserver(() => fitAddon.fit()).observe($("term-panel"));
+
+// ──────────────────────────────────────────────────────────────────────────
+//  v86 0.5.357 — Alpine Linux x86
+// ──────────────────────────────────────────────────────────────────────────
+//
+//  Key performance settings:
+//    fastboot: true          → skips SeaBIOS memory check (boots ~2× faster)
+//    acpi:     true          → enables ACPI power management (needed by Alpine)
+//    disable_speaker: true   → disables SB16 audio emulation (saves CPU)
+//    memory_size: 2047 MB    → just under the int32 ceiling; DO NOT use exactly
+//                              2048 MB (2^31 bytes overflows int32 → snaps to max)
+//    vga_memory_size: 32 MB  → supports up to 1920×1200 framebuffer
+//    cdrom + async: true     → HTTP Range requests; only sectors v86 reads are
+//                              fetched; boot starts before ISO fully downloads
+//    network_relay_url       → public WebSocket relay; gives Alpine internet
+//                              access so `apk add` works immediately
+//
+// ──────────────────────────────────────────────────────────────────────────
+// ── Preflight + VM start ──────────────────────────────────────────────────
+// Runs HEAD requests against every required server asset before constructing
+// the emulator.  Any 404 / network error surfaces immediately as a readable
+// error list on the splash instead of a silent forever-hang.
+
+let emulator = null;   // assigned inside the IIFE once preflight passes
+
+(async () => {
+
+  // 1. Verify JS globals — catches missing npm install
+  const globalErrs = [
+    !window.Terminal && "  ✗  xterm Terminal not defined  →  run: npm install",
+    !window.FitAddon && "  ✗  FitAddon not defined        →  run: npm install",
+    !window.V86      && "  ✗  V86 engine not defined      →  run: npm install",
+  ].filter(Boolean);
+  if (globalErrs.length) { showBootError(globalErrs); return; }
+
+  // 2. Verify server-side assets — catches missing setup.sh run
+  const ASSETS = [
+    ["/v86/v86.wasm",      "v86.wasm       →  run: npm install"   ],
+    ["/bios/seabios.bin",  "seabios.bin    →  run: bash setup.sh" ],
+    ["/bios/vgabios.bin",  "vgabios.bin    →  run: bash setup.sh" ],
+    ["/images/alpine.iso", "alpine.iso     →  run: bash setup.sh" ],
+  ];
+  const missing = (await Promise.all(ASSETS.map(([url, label]) =>
+    fetch(url, { method: "HEAD" })
+      .then(r => r.ok ? null : `  ✗  ${label}  [HTTP ${r.status}]`)
+      .catch(()  =>             `  ✗  ${label}  [network error]`)
+  ))).filter(Boolean);
+  if (missing.length) { showBootError(missing); return; }
+
+  // ── All assets present — construct the emulator ───────────────────────────
+  const V86 = window.V86;
+
+  emulator = new V86({
+    // ── Engine ────────────────────────────────────────────────────────────
+    wasm_path: "/v86/v86.wasm",
+
+    // ── Memory ────────────────────────────────────────────────────────────
+    // 2047 MiB = 2,146,435,072 bytes — stays below the signed int32 max.
+    // Exactly 2 GiB (2^31 bytes) overflows int32 and the engine silently
+    // clamps to its internal maximum; always use 2047 * 1024 * 1024.
+    memory_size:     2047 * 1024 * 1024,
+    vga_memory_size: 32   * 1024 * 1024,   // 32 MB → supports up to 1920×1200
+
+    // ── BIOS firmware ─────────────────────────────────────────────────────
+    // Downloaded by setup.sh into ./bios/ (not in the npm package since 0.5.x)
+    bios:     { url: "/bios/seabios.bin" },
+    vga_bios: { url: "/bios/vgabios.bin" },
+
+    // ── Boot disk ─────────────────────────────────────────────────────────
+    // Alpine standard x86 ISO via HTTP Range requests (async streaming).
+    // v86 only fetches the sectors it actually needs — boot begins immediately.
+    cdrom: { url: "/images/alpine.iso", async: true },
+
+    // ── Kernel command line ───────────────────────────────────────────────
+    // Overrides the ISOLINUX default.  Must include the squashfs/loop modules
+    // Alpine's initramfs needs to mount the live ISO root.
+    // vga=791 = VESA mode 0x317 → 1024×768 16bpp framebuffer (fbcon).
+    // Bump to vga=0x318 (1024×768 24bpp) or vga=794 (1280×1024 16bpp) if
+    // your v86 VGA BIOS supports it — 791 is the safest widely-supported mode.
+    cmdline: "modules=loop,squashfs,sd-mod,usb-storage quiet console=tty0 vga=791",
+
+    // ── Performance flags ─────────────────────────────────────────────────
+    fastboot:        true,    // skip SeaBIOS POST memory check (~2× faster boot)
+    acpi:            true,    // ACPI power management (required by Alpine's OpenRC)
+    disable_speaker: true,    // disable SB16 emulation — saves 5–10% CPU
+
+    // ── Networking ────────────────────────────────────────────────────────
+    // Public NE2000 ↔ WebSocket relay. Gives Alpine internet access.
+    // For production, host your own: github.com/nicowillis/v86-relay
+    network_relay_url: "wss://relay.widgetry.org/",
+
+    // ── Display ───────────────────────────────────────────────────────────
+    screen_container: $("screen-container"),   // VGA canvas injected here
+
+    autostart: true,
+  });
+
+  // ── Serial console bridge ─────────────────────────────────────────────────
+  // We manage the xterm instance ourselves (already opened in the DOM above).
+  // Using serial_container_xtermjs would cause v86 to call term.open() a
+  // second time, which throws because _document is already set.  Instead we
+  // listen to the char-level event and forward keystrokes via serial0_send.
+  emulator.add_listener("serial0-output-char", ch => term.write(ch));
+  term.onData(data => {
+    for (const ch of data) emulator.serial0_send(ch);
+  });
+
+  // ── Floating terminal window ───────────────────────────────────────────────
+  // A second xterm instance that mirrors serial0 output and can send input.
+  // Lives in the draggable/resizable overlay window on top of the VGA panel.
+  const floatTerm = new Terminal({
+    theme: {
+      background:          "#07070e",
+      foreground:          "#c8ffc8",
+      cursor:              "#00ff88",
+      cursorAccent:        "#000000",
+      selectionBackground: "rgba(0,255,136,.18)",
+      black:   "#000000", brightBlack:   "#444444",
+      red:     "#cc4444", brightRed:     "#ff6666",
+      green:   "#00ff88", brightGreen:   "#88ffcc",
+      yellow:  "#ddcc00", brightYellow:  "#ffee44",
+      blue:    "#4488ff", brightBlue:    "#88aaff",
+      magenta: "#cc66ff", brightMagenta: "#ee88ff",
+      cyan:    "#00ddcc", brightCyan:    "#44ffee",
+      white:   "#aaccaa", brightWhite:   "#ccffcc",
+    },
+    fontFamily: '"Cascadia Code", "Fira Code", "Courier New", monospace',
+    fontSize:    13,
+    lineHeight:  1.2,
+    cursorBlink: true,
+    cursorStyle: "block",
+    scrollback:  30000,
+    allowTransparency: true,
+    convertEol:  true,
+  });
+  const floatFit = new FitAddon.FitAddon();
+  floatTerm.loadAddon(floatFit);
+  floatTerm.open($("float-term-inner"));
+  floatFit.fit();
+
+  // Mirror serial0 output to the floating terminal as well
+  emulator.add_listener("serial0-output-char", ch => floatTerm.write(ch));
+  floatTerm.onData(data => {
+    for (const ch of data) emulator.serial0_send(ch);
+  });
+
+  // Refit when the window is resized (native resize handle)
+  new ResizeObserver(() => floatFit.fit()).observe($("float-win"));
+
+  window._floatTerm = floatTerm;   // expose for debug
+
+  // ── Emulator lifecycle events ─────────────────────────────────────────────
+  emulator.add_listener("emulator-ready", () => setVMState("booting"));
+
+  emulator.add_listener("emulator-started", () => {
+    setVMState("running");
+    startUptime();
+    hideSplash();
+  });
+
+  emulator.add_listener("emulator-stopped", () => {
+    setVMState("stopped");
+    _t0 = null;
+    $("s-uptime").textContent = "—";
+  });
+
+  // expose to browser console for debugging
+  window.emulator = emulator;
+
+})();
+
+// ── Focus hint — dismiss on first click ───────────────────────────────────
+const hint = $("focus-hint");
+$("screen-container").addEventListener("click", () => {
+  hint.classList.add("gone");
+  setTimeout(() => hint.remove(), 900);
+}, { once: true });
+
+// ── Network indicator — optimistically set "up" after Alpine boots ─────────
+setTimeout(() => {
+  const el = $("s-net");
+  if (el) { el.textContent = "up"; el.style.color = "var(--accent)"; }
+}, 14000);
+
+// ── View toggle (VGA ↔ Serial terminal) ───────────────────────────────────
+let _view = "vga";   // "vga" | "term"
+
+function switchView(to) {
+  _view = to;
+  $("vga-panel").classList.toggle("hidden",  to !== "vga");
+  $("term-panel").classList.toggle("visible", to === "term");
+  $("btn-vga").classList.toggle("active",  to === "vga");
+  $("btn-term").classList.toggle("active", to === "term");
+  if (to === "term") fitAddon.fit();
+}
+
+$("btn-vga").addEventListener("click",  () => switchView("vga"));
+$("btn-term").addEventListener("click", () => switchView("term"));
+
+// ── Floating terminal window controls ─────────────────────────────────────
+const floatWin = $("float-win");
+let _floatMinimised = false;
+let _prevSize = null;
+
+function openFloatTerm() {
+  floatWin.classList.remove("hidden");
+  $("btn-float-term").classList.add("active");
+  _floatMinimised = false;
+  floatWin.style.height = (_prevSize?.h ?? "400px");
+  floatWin.style.width  = (_prevSize?.w ?? "660px");
+  // give the DOM a frame then fit
+  requestAnimationFrame(() => window._floatTerm && window._floatTerm._addonManager
+    // fitAddon exposes fit() directly on _floatTerm via the instance we kept:
+    || setTimeout(() => {
+      const inner = $("float-term-inner");
+      if (inner && window._floatTerm) {
+        // trigger ResizeObserver
+        inner.dispatchEvent(new Event("resize"));
+      }
+    }, 50));
+}
+
+function closeFloatTerm() {
+  floatWin.classList.add("hidden");
+  $("btn-float-term").classList.remove("active");
+}
+
+function toggleFloatTerm() {
+  floatWin.classList.contains("hidden") ? openFloatTerm() : closeFloatTerm();
+}
+
+$("btn-float-term").addEventListener("click", toggleFloatTerm);
+$("win-close").addEventListener("click", closeFloatTerm);
+
+$("win-min").addEventListener("click", () => {
+  if (_floatMinimised) {
+    floatWin.style.height = _prevSize?.h ?? "400px";
+    _floatMinimised = false;
+  } else {
+    _prevSize = { w: floatWin.style.width || "660px", h: floatWin.style.height || "400px" };
+    floatWin.style.height = "26px";   // just the title bar
+    _floatMinimised = true;
+  }
+});
+
+$("win-zoom").addEventListener("click", () => {
+  const tb = 32, sb = 26;
+  if (floatWin.style.top === tb + "px" && floatWin.style.left === "0px" &&
+      floatWin.style.width  === "100vw") {
+    // restore
+    Object.assign(floatWin.style, {
+      top: "60px", left: "60px",
+      width: "660px", height: "400px",
+    });
+  } else {
+    // maximise to content area
+    Object.assign(floatWin.style, {
+      top: tb + "px", left: "0px",
+      width: "100vw", height: `calc(100vh - ${tb + sb}px)`,
+    });
+  }
+});
+
+// Drag via title bar
+(function() {
+  const bar = $("float-titlebar");
+  let ox = 0, oy = 0, dragging = false;
+  bar.addEventListener("mousedown", e => {
+    if (e.target.classList.contains("win-dot")) return;
+    dragging = true;
+    ox = e.clientX - floatWin.offsetLeft;
+    oy = e.clientY - floatWin.offsetTop;
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!dragging) return;
+    floatWin.style.left = Math.max(0, e.clientX - ox) + "px";
+    floatWin.style.top  = Math.max(32, e.clientY - oy) + "px";
+  });
+  document.addEventListener("mouseup", () => { dragging = false; });
+})();
+
+// Ctrl+Alt+T — open / focus floating terminal
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.altKey && e.key === "t") {
+    e.preventDefault();
+    toggleFloatTerm();
+  }
+});
+
+// ── Top bar controls ───────────────────────────────────────────────────────
+let _paused = false;
+
+$("btn-reset").addEventListener("click", () => {
+  if (!emulator) return;
+  _t0 = null;
+  $("s-uptime").textContent = "—";
+  setVMState("booting");
+  emulator.restart();
+});
+
+$("btn-pause").addEventListener("click", () => {
+  if (!emulator) return;
+  if (_paused) {
+    emulator.run();
+    $("btn-pause").textContent = "⏸ Pause";
+    setVMState("running");
+  } else {
+    emulator.stop();
+    $("btn-pause").textContent = "▶ Resume";
+    setVMState("paused");
+  }
+  _paused = !_paused;
+});
+
+$("btn-save").addEventListener("click", () => {
+  if (!emulator) return;
+  emulator.save_state((err, bytes) => {
+    if (err) { alert("Save failed: " + err); return; }
+    const a = Object.assign(document.createElement("a"), {
+      href:     URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })),
+      download: "webos-snapshot.bin",
+    });
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+});
+
+$("btn-load").addEventListener("click", () => $("snap-input").click());
+$("snap-input").addEventListener("change", function() {
+  if (!this.files[0] || !emulator) return;
+  const r = new FileReader();
+  r.onload = e => emulator.restore_state(e.target.result, err => {
+    if (err) alert("Load failed: " + err);
+  });
+  r.readAsArrayBuffer(this.files[0]);
+  this.value = "";
+});
+
+// ── Context menu ───────────────────────────────────────────────────────────
+const ctx = $("ctx");
+document.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  ctx.style.left = Math.min(e.clientX, innerWidth  - 180) + "px";
+  ctx.style.top  = Math.min(e.clientY, innerHeight -  80) + "px";
+  ctx.classList.add("open");
+});
+document.addEventListener("click", () => ctx.classList.remove("open"));
+
+$("ci-reset").addEventListener("click", () => $("btn-reset").click());
+
+$("ci-shot").addEventListener("click", () => {
+  const c = $("screen-container").querySelector("canvas");
+  if (!c) { alert("Canvas not ready."); return; }
+  Object.assign(document.createElement("a"), {
+    href: c.toDataURL("image/png"), download: "webos-screenshot.png"
+  }).click();
+});
+
+$("ci-fs").addEventListener("click", () => {
+  (document.fullscreenElement
+    ? document.exitFullscreen()
+    : document.documentElement.requestFullscreen()
+  ).catch(() => {});
+});
+
+// ── Dev console tips ───────────────────────────────────────────────────────
+window.term = term;
+console.log(
+  "%cWebOS / Alpine Linux%c\n" +
+  "  Login: %croot%c (no password)\n" +
+  "  Packages: %capk add nano vim htop python3%c\n" +
+  "  JS API: %cemulator%c  %cterm%c\n" +
+  "  vRAM: 2047 MB  |  VGA: 32 MB  |  fastboot + ACPI enabled",
+  "color:#00ff88;font-weight:bold;font-size:13px", "",
+  "color:#ffd700;font-weight:bold", "",
+  "color:#ffd700", "",
+  "color:#ffd700", "",
+  "color:#ffd700", ""
+);
+</script>
+</body>
+</html>
