@@ -409,11 +409,11 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
 
 (async () => {
 
-  // 1. Verify JS globals — catches missing npm install
+  // 1. Verify JS globals
   const globalErrs = [
-    !window.Terminal && "  ✗  xterm Terminal not defined  →  run: npm install",
-    !window.FitAddon && "  ✗  FitAddon not defined        →  run: npm install",
-    !window.V86      && "  ✗  V86 engine not defined      →  run: npm install",
+    !window.Terminal   && "  ✗  xterm Terminal not defined  →  run: npm install",
+    !window.FitAddon   && "  ✗  FitAddon not defined        →  run: npm install",
+    !window.V86Starter && "  ✗  V86 engine not defined      →  run: npm install", // Fix here
   ].filter(Boolean);
   if (globalErrs.length) { showBootError(globalErrs); return; }
 
@@ -432,7 +432,7 @@ let emulator = null;   // assigned inside the IIFE once preflight passes
   if (missing.length) { showBootError(missing); return; }
 
   // ── All assets present — construct the emulator ───────────────────────────
-  const V86 = window.V86;
+const V86 = window.V86Starter; // Fix here
 
   emulator = new V86({
     // ── Engine ────────────────────────────────────────────────────────────
