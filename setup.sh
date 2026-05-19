@@ -29,17 +29,6 @@ download() {
 echo -e "${BOLD}[1/4] Installing Node.js dependencies (v86 0.5.357 + Express + xterm)...${NC}"
 npm install
 echo -e "${GREEN}      ✓ Done${NC}"
-
-# Copy xterm UMD bundles to public/lib so they're served as plain static files.
-# This is more robust than serving from node_modules directly: Heroku/Koyeb
-# buildpacks may prune or relocate node_modules after install, but static
-# files in public/ are always present in the final image.
-echo -e "      Copying xterm UMD bundles to public/lib/..."
-mkdir -p public/lib
-cp node_modules/xterm/lib/xterm.js                       public/lib/xterm.js
-cp node_modules/xterm/css/xterm.css                      public/lib/xterm.css
-cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js   public/lib/xterm-addon-fit.js
-echo -e "${GREEN}      ✓ xterm → public/lib/${NC}"
 echo ""
 
 # ── 2. BIOS firmware ──────────────────────────────────────────────────────────
@@ -91,9 +80,9 @@ for f in \
   "node_modules/v86/build/libv86.js" \
   "node_modules/v86/build/v86.wasm" \
   "node_modules/v86/build/v86-fallback.wasm" \
-  "public/lib/xterm.js" \
-  "public/lib/xterm.css" \
-  "public/lib/xterm-addon-fit.js" \
+  "node_modules/xterm/lib/xterm.js" \
+  "node_modules/xterm/css/xterm.css" \
+  "node_modules/xterm-addon-fit/lib/xterm-addon-fit.js" \
   "bios/seabios.bin" \
   "bios/vgabios.bin" \
   "images/alpine.iso"

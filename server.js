@@ -47,11 +47,17 @@ app.use("/images", express.static(path.join(__dirname, "images"), {
   },
 }));
 
-// xterm.js — copied to public/lib/ by setup.sh (cp from node_modules).
-// Serving as plain static files is more robust on Heroku/Koyeb where
-// node_modules may be pruned or relocated after the build step.
+// xterm.js — unscoped npm packages ship proper UMD bundles that expose
+// window.Terminal and window.FitAddon when loaded via <script src>.
+const xtermLib = path.join(__dirname, "node_modules", "xterm",           "lib");
+const xtermCss = path.join(__dirname, "node_modules", "xterm",           "css");
+const xtermFit = path.join(__dirname, "node_modules", "xterm-addon-fit", "lib");
 
-// Front-end (includes public/lib/xterm.js, public/lib/xterm.css, etc.)
+app.get("/lib/xterm.js",           (_req, res) => res.sendFile(path.join(xtermLib, "xterm.js")));
+app.get("/lib/xterm.css",          (_req, res) => res.sendFile(path.join(xtermCss, "xterm.css")));
+app.get("/lib/xterm-addon-fit.js", (_req, res) => res.sendFile(path.join(xtermFit, "xterm-addon-fit.js")));
+
+// Front-end
 app.use(express.static(path.join(__dirname, "public")));
 
 // ── Start ────────────────────────────────────────────────────────────────────
