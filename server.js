@@ -47,15 +47,16 @@ app.use("/images", express.static(path.join(__dirname, "images"), {
   },
 }));
 
-// xterm.js — unscoped npm packages ship proper UMD bundles that expose
-// window.Terminal and window.FitAddon when loaded via <script src>.
-const xtermLib = path.join(__dirname, "node_modules", "xterm",           "lib");
-const xtermCss = path.join(__dirname, "node_modules", "xterm",           "css");
-const xtermFit = path.join(__dirname, "node_modules", "xterm-addon-fit", "lib");
+// xterm.js — served from npm packages; no fragile curl downloads needed.
+// @xterm/xterm ships  xterm.js (UMD) under lib/ and xterm.css under css/.
+// @xterm/addon-fit ships addon-fit.js (UMD) under lib/.
+const xtermLib = path.join(__dirname, "node_modules", "@xterm", "xterm",     "lib");
+const xtermCss = path.join(__dirname, "node_modules", "@xterm", "xterm",     "css");
+const xtermFit = path.join(__dirname, "node_modules", "@xterm", "addon-fit", "lib");
 
 app.get("/lib/xterm.js",           (_req, res) => res.sendFile(path.join(xtermLib, "xterm.js")));
 app.get("/lib/xterm.css",          (_req, res) => res.sendFile(path.join(xtermCss, "xterm.css")));
-app.get("/lib/xterm-addon-fit.js", (_req, res) => res.sendFile(path.join(xtermFit, "xterm-addon-fit.js")));
+app.get("/lib/xterm-addon-fit.js", (_req, res) => res.sendFile(path.join(xtermFit, "addon-fit.js")));
 
 // Front-end
 app.use(express.static(path.join(__dirname, "public")));
@@ -72,6 +73,6 @@ app.listen(PORT, () => {
   console.log("");
   console.log(`  \x1b[32m✓\x1b[0m Running at \x1b[36mhttp://localhost:${PORT}\x1b[0m`);
   console.log(`  \x1b[90mCORS: *  |  COOP/COEP: enabled  |  SharedArrayBuffer: unlocked\x1b[0m`);
-  console.log(`  \x1b[90mv86: 0.5.357  |  Alpine Linux x86  |  ~2 GB vRAM\x1b[0m`);
+  console.log(`  \x1b[90mv86: 0.5.357  |  Alpine Linux 3.23.4 x86  |  1 GiB ext4 HDA  |  full apk\x1b[0m`);
   console.log("");
 });
