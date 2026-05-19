@@ -47,18 +47,11 @@ app.use("/images", express.static(path.join(__dirname, "images"), {
   },
 }));
 
-// xterm.js — served from npm packages; no fragile curl downloads needed.
-// @xterm/xterm ships  xterm.js (UMD) under lib/ and xterm.css under css/.
-// @xterm/addon-fit ships addon-fit.js (UMD) under lib/.
-const xtermLib = path.join(__dirname, "node_modules", "@xterm", "xterm",     "lib");
-const xtermCss = path.join(__dirname, "node_modules", "@xterm", "xterm",     "css");
-const xtermFit = path.join(__dirname, "node_modules", "@xterm", "addon-fit", "lib");
+// xterm.js — copied to public/lib/ by setup.sh (cp from node_modules).
+// Serving as plain static files is more robust on Heroku/Koyeb where
+// node_modules may be pruned or relocated after the build step.
 
-app.get("/lib/xterm.js",           (_req, res) => res.sendFile(path.join(xtermLib, "xterm.js")));
-app.get("/lib/xterm.css",          (_req, res) => res.sendFile(path.join(xtermCss, "xterm.css")));
-app.get("/lib/xterm-addon-fit.js", (_req, res) => res.sendFile(path.join(xtermFit, "addon-fit.js")));
-
-// Front-end
+// Front-end (includes public/lib/xterm.js, public/lib/xterm.css, etc.)
 app.use(express.static(path.join(__dirname, "public")));
 
 // ── Start ────────────────────────────────────────────────────────────────────

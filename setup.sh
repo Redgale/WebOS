@@ -23,12 +23,23 @@ download() {
 }
 
 # ── 1. npm install ────────────────────────────────────────────────────────────
-# @xterm/xterm and @xterm/addon-fit are now proper npm dependencies.
-# They ship UMD bundles that the Express server routes directly from node_modules,
-# so there are no fragile CDN curl downloads to break under COEP headers.
+# xterm and xterm-addon-fit are the *unscoped* npm packages — they ship proper
+# UMD bundles in lib/ that work as plain <script src> browser globals.
+# The @xterm/* scoped packages are CJS/ESM only and must NOT be used here.
 echo -e "${BOLD}[1/4] Installing Node.js dependencies (v86 0.5.357 + Express + xterm)...${NC}"
 npm install
 echo -e "${GREEN}      ✓ Done${NC}"
+
+# Copy xterm UMD bundles to public/lib so they're served as plain static files.
+# This is more robust than serving from node_modules directly: Heroku/Koyeb
+# buildpacks may prune or relocate node_modules after install, but static
+# files in public/ are always present in the final image.
+echo -e "      Copying xterm UMD bundles to public/lib/..."
+mkdir -p public/lib
+cp node_modules/xterm/lib/xterm.js                       public/lib/xterm.js
+cp node_modules/xterm/css/xterm.css                      public/lib/xterm.css
+cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js   public/lib/xterm-addon-fit.js
+echo -e "${GREEN}      ✓ xterm → public/lib/${NC}"
 echo ""
 
 # ── 2. BIOS firmware ──────────────────────────────────────────────────────────
@@ -56,12 +67,12 @@ echo ""
 
 # ── 4. Alpine Linux ISO ───────────────────────────────────────────────────────
 echo -e "${BOLD}[3/4] Downloading Alpine Linux x86 ISO...${NC}"
-echo -e "      ${CYAN}Alpine 3.19 x86 standard — ~175 MB${NC}"
-echo -e "      ${CYAN}Supports apk, X11 apps, and nearly all Linux tools.${NC}"
+echo -e "      ${CYAN}Alpine 3.23.3 x86 standard — ~200 MB${NC}"
+echo -e "      ${CYAN}Latest stable. Supports apk, X11 apps, and nearly all Linux tools.${NC}"
 mkdir -p images
 
-ALPINE_VER="3.19.4"
-ALPINE_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86/alpine-standard-${ALPINE_VER}-x86.iso"
+ALPINE_VER="3.23.3"
+ALPINE_URL="https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/x86/alpine-standard-${ALPINE_VER}-x86.iso"
 ALPINE_OUT="images/alpine.iso"
 
 if [ -f "$ALPINE_OUT" ]; then
@@ -80,9 +91,9 @@ for f in \
   "node_modules/v86/build/libv86.js" \
   "node_modules/v86/build/v86.wasm" \
   "node_modules/v86/build/v86-fallback.wasm" \
-  "node_modules/@xterm/xterm/lib/xterm.js" \
-  "node_modules/@xterm/xterm/css/xterm.css" \
-  "node_modules/@xterm/addon-fit/lib/addon-fit.js" \
+  "public/lib/xterm.js" \
+  "public/lib/xterm.css" \
+  "public/lib/xterm-addon-fit.js" \
   "bios/seabios.bin" \
   "bios/vgabios.bin" \
   "images/alpine.iso"
@@ -110,5 +121,6 @@ echo -e "  Open browser:      ${CYAN}http://localhost:8080${NC}"
 echo ""
 echo -e "  ${YELLOW}Alpine Linux login:${NC}  root  (no password)"
 echo -e "  ${YELLOW}Install packages:${NC}    apk add nano vim htop python3 ..."
+echo -e "  ${YELLOW}Note:${NC}               network repos are pre-configured — apk works out of the box"
 echo -e "  ${YELLOW}Networking:${NC}          wss://relay.widgetry.org (public relay)"
 echo ""
